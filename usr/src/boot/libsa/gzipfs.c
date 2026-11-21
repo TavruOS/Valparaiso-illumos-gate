@@ -94,7 +94,7 @@ zf_fill(struct z_file *zf)
 static int
 get_byte(struct z_file *zf, off_t *curoffp)
 {
-	if ((zf->zf_zstream.avail_in == 0) && (zf_fill(zf) == -1))
+	if ((zf->zf_zstream.avail_in == 0) && (zf_fill(zf) <= 0))
 		return (-1);
 	zf->zf_zstream.avail_in--;
 	++*curoffp;
@@ -129,35 +129,49 @@ check_header(struct z_file *zf)
 	}
 	method = get_byte(zf, &zf->zf_dataoffset);
 	flags = get_byte(zf, &zf->zf_dataoffset);
-	if (method != Z_DEFLATED || (flags & RESERVED) != 0) {
+	if (method != Z_DEFLATED || flags == -1 || (flags & RESERVED) != 0) {
 		return (1);
 	}
 
-	/* Discard time, xflags and OS code: */
-	for (len = 0; len < 6; len++)
-		(void) get_byte(zf, &zf->zf_dataoffset);
+	/* Discard time, xflags and OS code. */
+	for (len = 0; len < 6; len++) {
+		if (get_byte(zf, &zf->zf_dataoffset) == -1)
+			return (1);
+	}
 
-	if ((flags & EXTRA_FIELD) != 0) { /* skip the extra field */
-		len  =  (uInt)get_byte(zf, &zf->zf_dataoffset);
-		len += ((uInt)get_byte(zf, &zf->zf_dataoffset))<<8;
-		/* len is garbage if EOF but the loop below will quit anyway */
-		while (len-- != 0 && get_byte(zf, &zf->zf_dataoffset) != -1)
+	if ((flags & EXTRA_FIELD) != 0) {
+		c = get_byte(zf, &zf->zf_dataoffset);
+		if (c == -1)
+			return (1);
+		len = (uInt)c;
+		c = get_byte(zf, &zf->zf_dataoffset);
+		if (c == -1)
+			return (1);
+		len |= (uInt)c << 8;
+		while (len-- != 0) {
+			if (get_byte(zf, &zf->zf_dataoffset) == -1)
+				return (1);
+		}
+	}
+	if ((flags & ORIG_NAME) != 0) {
+		while ((c = get_byte(zf, &zf->zf_dataoffset)) > 0)
 			;
+		if (c == -1)
+			return (1);
 	}
-	if ((flags & ORIG_NAME) != 0) { /* skip the original file name */
-		while ((c = get_byte(zf, &zf->zf_dataoffset)) != 0 && c != -1)
+	if ((flags & COMMENT) != 0) {
+		while ((c = get_byte(zf, &zf->zf_dataoffset)) > 0)
 			;
+		if (c == -1)
+			return (1);
 	}
-	if ((flags & COMMENT) != 0) {   /* skip the .gz file comment */
-		while ((c = get_byte(zf, &zf->zf_dataoffset)) != 0 && c != -1)
-			;
+	if ((flags & HEAD_CRC) != 0) {
+		for (len = 0; len < 2; len++) {
+			if (get_byte(zf, &zf->zf_dataoffset) == -1)
+				return (1);
+		}
 	}
-	if ((flags & HEAD_CRC) != 0) {  /* skip the header crc */
-		for (len = 0; len < 2; len++)
-			c = get_byte(zf, &zf->zf_dataoffset);
-	}
-	/* if there's data left, we're in business */
-	return ((c == -1) ? 1 : 0);
+	return (0);
 }
 
 static int
@@ -211,8 +225,10 @@ zf_open(const char *fname, struct open_file *f)
 
 	/* Allocate a z_file structure, populate it */
 	zf = malloc(sizeof (struct z_file));
-	if (zf == NULL)
+	if (zf == NULL) {
+		close(rawfd);
 		return (ENOMEM);
+	}
 	bzero(zf, sizeof (struct z_file));
 	zf->zf_rawfd = rawfd;
 
@@ -264,9 +280,7 @@ zf_read(struct open_file *f, void *buf, size_t size, size_t *resid)
 		}
 		if (zf->zf_zstream.avail_in == 0) { /* oops, unexpected EOF */
 			printf("zf_read: unexpected EOF\n");
-			if (zf->zf_zstream.avail_out == size)
-				return (EIO);
-			break;
+			return (EIO);
 		}
 
 		/* decompression pass */
@@ -319,12 +333,17 @@ zf_seek(struct open_file *f, off_t offset, int where)
 		return (-1);
 	}
 
+	if (target < 0) {
+		errno = EINVAL;
+		return (-1);
+	}
+
 	/* rewind if required */
 	if (target < zf->zf_zstream.total_out && zf_rewind(f) != 0)
 		return (-1);
 
 	/* skip forwards if required */
-	while (target > zf->zf_zstream.total_out) {
+	while (target > zf->zf_zstream.total_out && zf->zf_endseen == 0) {
 		errno = zf_read(f, discard, min(sizeof (discard),
 		    target - zf->zf_zstream.total_out), NULL);
 		if (errno != 0)
