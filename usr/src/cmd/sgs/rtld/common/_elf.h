@@ -126,6 +126,7 @@ typedef struct _rt_elf_private {
 	Capinfo		*e_capinfo;	/* symbol capabilities information */
 	uint_t		e_capchainent;	/* size of capabilities chain entry */
 	uint_t		e_capchainsz;	/* size of capabilities chain data */
+	Phdr		*e_ptrelro;	/* pending PT_GNU_RELRO protection */
 } Rt_elfp;
 
 /*
@@ -145,6 +146,7 @@ typedef struct _rt_elf_private {
 #define	SUNWSYMSZ(X)		(((Rt_elfp *)(X)->rt_priv)->e_sunwsymsz)
 #define	PTTLS(X)		(((Rt_elfp *)(X)->rt_priv)->e_pttls)
 #define	PTUNWIND(X)		(((Rt_elfp *)(X)->rt_priv)->e_ptunwind)
+#define	PTRELRO(X)		(((Rt_elfp *)(X)->rt_priv)->e_ptrelro)
 #define	TLSSTATOFF(X)		(((Rt_elfp *)(X)->rt_priv)->e_tlsstatoff)
 #define	PLTRELSZ(X)		(((Rt_elfp *)(X)->rt_priv)->e_pltrelsize)
 #define	RELSZ(X)		(((Rt_elfp *)(X)->rt_priv)->e_relsz)

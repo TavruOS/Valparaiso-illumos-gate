@@ -98,6 +98,7 @@
 @ MSG_SYS_OPEN		"%s: open failed: %s"
 @ MSG_SYS_MMAP		"%s: mmap failed: %s"
 @ MSG_SYS_MPROT		"%s: mprotect failed: %s"
+@ MSG_RELRO_RANGE	"%s: invalid PT_GNU_RELRO segment"
 @ MSG_SYS_MMAPANON	"mmap anon failed: %s"
 
 @ MSG_SEC_OPEN		"%s: open failed: No such file in secure directories"
