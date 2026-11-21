@@ -44,6 +44,13 @@
 #include <inttypes.h>
 
 #include "libzfs.h"
+#include "valpo_bootprof.h"
+
+#if defined(__amd64)
+int valpo_prof_active;
+uint64_t valpo_prof_io, valpo_prof_io_bytes, valpo_prof_io_calls;
+uint64_t valpo_prof_gzip, valpo_prof_zfs, valpo_prof_checksum;
+#endif
 
 #include "zfsimpl.c"
 

@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <zlib.h>
+#include "valpo_bootprof.h"
 
 #define	Z_BUFSIZE 16384	/* match NFSREAD_MAX_SIZE */
 
@@ -270,7 +271,14 @@ zf_read(struct open_file *f, void *buf, size_t size, size_t *resid)
 		}
 
 		/* decompression pass */
+#if defined(__amd64)
+		uint64_t started = valpo_prof_active ? valpo_prof_ticks() : 0;
+#endif
 		error = inflate(&zf->zf_zstream, Z_SYNC_FLUSH);
+#if defined(__amd64)
+		if (started != 0)
+			valpo_prof_gzip += valpo_prof_ticks() - started;
+#endif
 		if (error == Z_STREAM_END) {	/* EOF, all done */
 			zf->zf_endseen = 1;
 			break;

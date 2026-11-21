@@ -1258,6 +1258,8 @@ check_image_hash(uint_t midx)
 	uint8_t digest[SHA1_DIGEST_LENGTH];
 	uint8_t baseline[SHA1_DIGEST_LENGTH];
 	unsigned int i;
+	uint32_t start_lo, start_hi, end_lo, end_hi;
+	boolean_t measure = prom_debug && modules[midx].bm_type == BMT_ROOTFS;
 
 	ascii = (const char *)(uintptr_t)modules[midx].bm_hash;
 	image = (const void *)(uintptr_t)modules[midx].bm_addr;
@@ -1265,9 +1267,21 @@ check_image_hash(uint_t midx)
 
 	digest_a2h(ascii, baseline);
 
+	if (measure) {
+		__asm__ __volatile__("lfence; rdtsc" :
+		    "=a" (start_lo), "=d" (start_hi) :: "memory");
+	}
 	SHA1Init(&ctx);
 	SHA1Update(&ctx, image, len);
 	SHA1Final(digest, &ctx);
+	if (measure) {
+		__asm__ __volatile__("lfence; rdtsc" :
+		    "=a" (end_lo), "=d" (end_hi) :: "memory");
+		uint64_t ticks = (((uint64_t)end_hi << 32) | end_lo) -
+		    (((uint64_t)start_hi << 32) | start_lo);
+		dboot_printf("\nVALPO_ARCHIVE_HASH ticks=%llx bytes=%lx\n",
+		    (u_longlong_t)ticks, (ulong_t)len);
+	}
 
 	for (i = 0; i < SHA1_DIGEST_LENGTH; i++) {
 		if (digest[i] != baseline[i])

@@ -44,6 +44,7 @@
 #include <libcrypto.h>
 
 #include "bootstrap.h"
+#include "valpo_bootprof.h"
 
 #define	MDIR_REMOVED	0x0001
 #define	MDIR_NOHINTS	0x0002
@@ -760,7 +761,14 @@ file_loadraw(const char *fname, char *type, int argc, char **argv, int insert)
 		return (NULL);
 	}
 
+#if defined(__amd64) && defined(EFI)
+	valpo_prof_active = strcmp(type, "rootfs") == 0 &&
+	    getenv("valpo_boot_profile") != NULL;
+#endif
 	got = archsw.arch_readin(fd, loadaddr, st.st_size);
+#if defined(__amd64) && defined(EFI)
+	valpo_prof_active = 0;
+#endif
 	if ((size_t)got != st.st_size) {
 		(void) snprintf(command_errbuf, sizeof (command_errbuf),
 		    "error reading '%s': %s", name, strerror(errno));

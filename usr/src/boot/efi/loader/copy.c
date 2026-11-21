@@ -38,6 +38,7 @@
 #include <efilib.h>
 
 #include "loader_efi.h"
+#include "valpo_bootprof.h"
 
 /*
  * Verify the address is not in use by existing modules.
@@ -243,6 +244,32 @@ ssize_t
 efi_readin(const int fd, vm_offset_t dest, const size_t len)
 {
 	if (dest + len >= dest && (uint64_t)dest + len <= UINT32_MAX) {
+#if defined(__amd64)
+		if (valpo_prof_active) {
+			uint64_t begin = valpo_prof_ticks();
+			(void) BS->Stall(100000);
+			uint64_t calibration = valpo_prof_ticks() - begin;
+			valpo_prof_io = valpo_prof_io_bytes = 0;
+			valpo_prof_io_calls = 0;
+			valpo_prof_gzip = valpo_prof_zfs = 0;
+			valpo_prof_checksum = 0;
+			begin = valpo_prof_ticks();
+			ssize_t got = read(fd, (void *)dest, len);
+			uint64_t total = valpo_prof_ticks() - begin;
+			printf("VALPO_BOOT_PROFILE cal100ms=%ju total=%ju "
+			    "io=%ju io_bytes=%ju io_calls=%ju gzip=%ju "
+			    "zfs_decomp=%ju zfs_check=%ju archive_bytes=%ju\n",
+			    (uintmax_t)calibration, (uintmax_t)total,
+			    (uintmax_t)valpo_prof_io,
+			    (uintmax_t)valpo_prof_io_bytes,
+			    (uintmax_t)valpo_prof_io_calls,
+			    (uintmax_t)valpo_prof_gzip,
+			    (uintmax_t)valpo_prof_zfs,
+			    (uintmax_t)valpo_prof_checksum,
+			    (uintmax_t)len);
+			return (got);
+		}
+#endif
 		return (read(fd, (void *)dest, len));
 	} else {
 		errno = EFBIG;

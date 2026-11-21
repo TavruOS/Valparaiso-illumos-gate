@@ -236,10 +236,24 @@ vdev_read_phys(vdev_t *vdev, const blkptr_t *bp, void *buf,
 		psize = size;
 	}
 
+#if defined(__amd64)
+	uint64_t started = valpo_prof_active ? valpo_prof_ticks() : 0;
+#endif
 	rc = vdev->v_phys_read(vdev, vdev->v_priv, offset, buf, psize);
-	if (rc == 0) {
-		if (bp != NULL)
-			rc = zio_checksum_verify(vdev->v_spa, bp, buf);
+#if defined(__amd64)
+	if (started != 0) {
+		valpo_prof_io += valpo_prof_ticks() - started;
+		valpo_prof_io_bytes += psize;
+		valpo_prof_io_calls++;
+		started = valpo_prof_ticks();
+	}
+#endif
+	if (rc == 0 && bp != NULL) {
+		rc = zio_checksum_verify(vdev->v_spa, bp, buf);
+#if defined(__amd64)
+		if (started != 0)
+			valpo_prof_checksum += valpo_prof_ticks() - started;
+#endif
 	}
 
 	return (rc);
@@ -2235,6 +2249,21 @@ zio_read_gang(const spa_t *spa, const blkptr_t *bp, void *buf)
 }
 
 static int
+profile_decompress(int cpfunc, void *pbuf, size_t psize, void *buf,
+    size_t lsize)
+{
+#if defined(__amd64)
+	uint64_t started = valpo_prof_active ? valpo_prof_ticks() : 0;
+#endif
+	int result = zio_decompress_data(cpfunc, pbuf, psize, buf, lsize);
+#if defined(__amd64)
+	if (started != 0)
+		valpo_prof_zfs += valpo_prof_ticks() - started;
+#endif
+	return (result);
+}
+
+static int
 zio_read(const spa_t *spa, const blkptr_t *bp, void *buf)
 {
 	int cpfunc = BP_GET_COMPRESS(bp);
@@ -2263,7 +2292,7 @@ zio_read(const spa_t *spa, const blkptr_t *bp, void *buf)
 		error = 0;
 
 		if (cpfunc != ZIO_COMPRESS_OFF) {
-			error = zio_decompress_data(cpfunc, pbuf,
+			error = profile_decompress(cpfunc, pbuf,
 			    size, buf, BP_GET_LSIZE(bp));
 			free(pbuf);
 		}
@@ -2317,7 +2346,7 @@ zio_read(const spa_t *spa, const blkptr_t *bp, void *buf)
 			error = vdev->v_read(vdev, bp, pbuf, offset, size);
 		if (error == 0) {
 			if (cpfunc != ZIO_COMPRESS_OFF)
-				error = zio_decompress_data(cpfunc, pbuf,
+				error = profile_decompress(cpfunc, pbuf,
 				    BP_GET_PSIZE(bp), buf, BP_GET_LSIZE(bp));
 			else if (size != BP_GET_PSIZE(bp))
 				bcopy(pbuf, buf, BP_GET_PSIZE(bp));
