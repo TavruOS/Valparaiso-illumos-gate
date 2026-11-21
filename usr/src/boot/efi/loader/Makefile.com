@@ -41,6 +41,9 @@ module.o := CPPFLAGS += -I$(CRYPTOSRC)
 tem.o := CPPFLAGS += $(DEFAULT_CONSOLE_COLOR)
 main.o := CPPFLAGS += -I$(SRC)/uts/common/fs/zfs
 
+# Supplying the verifier object enables mandatory configuration checking.
+main.o := CPPFLAGS += $(CONFIG_VERIFY_OBJ:%=-DVALPARAISO_VERIFY_CONFIG)
+
 CPPFLAGS += -I../../../include -I../../../sys
 CPPFLAGS += -I../../../libsa
 
@@ -132,8 +135,8 @@ LIBEFI=		-L../../libefi/$(MACHINE) -lefi
 DPADD=		$(DPLIBFICL) $(DPLIBEFI) $(DPLIBSA) $(LDSCRIPT)
 LDADD=		$(LIBFICL) $(LIBEFI) $(LIBSA)
 
-loader.sym:	$(OBJS) $(DPADD)
-	$(GLD) $(LDFLAGS) -o $@ $(OBJS) $(LDADD)
+loader.sym:	$(OBJS) $(DPADD) $(CONFIG_VERIFY_OBJ)
+	$(GLD) $(LDFLAGS) -o $@ $(OBJS) $(CONFIG_VERIFY_OBJ) $(LDADD)
 
 machine:
 	$(RM) machine

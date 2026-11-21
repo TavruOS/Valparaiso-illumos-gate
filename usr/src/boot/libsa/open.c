@@ -135,6 +135,8 @@ o_rainit(struct open_file *f)
 	f->f_raoffset = 0;
 }
 
+struct fs_ops *(*stand_file_override)(const char *);
+
 int
 open(const char *fname, int mode)
 {
@@ -154,6 +156,19 @@ open(const char *fname, int mode)
 	f->f_offset = 0;
 	f->f_devdata = NULL;
 	file = NULL;
+
+	/*
+	 * The platform can supply an in-memory file before device lookup.
+	 * Failure opening an overridden file must never fall back to disk.
+	 */
+	if (stand_file_override != NULL &&
+	    (fs = stand_file_override(fname)) != NULL) {
+		f->f_flags |= F_NODEV;
+		error = fs->fo_open(fname, f);
+		if (error == 0)
+			goto ok;
+		goto err;
+	}
 
 	if (exclusive_file_system != NULL) {
 		fs = exclusive_file_system;

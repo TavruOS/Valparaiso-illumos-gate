@@ -21,6 +21,8 @@ EFIPROG=	loader64.efi
 
 all:		$(EFIPROG)
 
+CONFIG_VERIFY_OBJ = $(VALPARAISO_VERIFY_OBJ)
+
 include ../Makefile.com
 
 EFI_TARGET=	pei-x86-64

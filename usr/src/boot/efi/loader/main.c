@@ -676,6 +676,10 @@ uefi_serial_console(void)
 	return (NULL);
 }
 
+#ifdef VALPARAISO_VERIFY_CONFIG
+#include "verified-config.h"
+#endif
+
 EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
@@ -934,6 +938,13 @@ main(int argc, CHAR16 *argv[])
 	if (!find_currdev(boot_img))
 		if (!interactive_interrupt("Failed to find bootable partition"))
 			return (EFI_NOT_FOUND);
+
+#ifdef VALPARAISO_VERIFY_CONFIG
+	if (!verified_config_init()) {
+		printf("Valparaiso loader.conf verification failed\n");
+		return (EFI_SECURITY_VIOLATION);
+	}
+#endif
 
 	autoload_font(false);		/* Set up the font list for console. */
 	efi_init_environment();
