@@ -135,7 +135,7 @@ o_rainit(struct open_file *f)
 	f->f_raoffset = 0;
 }
 
-struct fs_ops *(*stand_file_override)(const char *);
+struct fs_ops *(*stand_file_override)(const char *, int);
 
 int
 open(const char *fname, int mode)
@@ -162,7 +162,7 @@ open(const char *fname, int mode)
 	 * Failure opening an overridden file must never fall back to disk.
 	 */
 	if (stand_file_override != NULL &&
-	    (fs = stand_file_override(fname)) != NULL) {
+	    (fs = stand_file_override(fname, mode)) != NULL) {
 		f->f_flags |= F_NODEV;
 		error = fs->fo_open(fname, f);
 		if (error == 0)

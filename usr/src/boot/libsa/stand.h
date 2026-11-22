@@ -287,7 +287,7 @@ extern void	ngets(char *, int);
 #define	gets(x)	ngets((x), 0)
 extern int	fgetstr(char *buf, int size, int fd);
 
-extern struct fs_ops *(*stand_file_override)(const char *);
+extern struct fs_ops *(*stand_file_override)(const char *, int);
 extern int	open(const char *, int);
 #define	O_RDONLY	0x0
 #define	O_WRONLY	0x1
