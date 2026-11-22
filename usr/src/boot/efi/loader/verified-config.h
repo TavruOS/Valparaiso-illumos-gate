@@ -274,6 +274,78 @@ static struct fs_ops verified_config_ops = {
 	.fo_readdir = null_readdir
 };
 
+/*
+ * Let Forth enumerate the configuration directory. Only its entries, never
+ * disk file data, are exposed through this descriptor.
+ */
+static int
+verified_confdir_open(const char *path, struct open_file *file)
+{
+	struct stat st;
+	int fd;
+
+	if (file->f_flags != (F_READ | F_NODEV))
+		return (EACCES);
+	opening_raw_startup_file = true;
+	fd = open(path, O_RDONLY | F_GZIP);
+	opening_raw_startup_file = false;
+	if (fd == -1)
+		return (errno);
+	if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode)) {
+		(void) close(fd);
+		return (ENOTDIR);
+	}
+	file->f_fsdata = fd2open_file(fd);
+	return (0);
+}
+
+static int
+verified_confdir_close(struct open_file *file)
+{
+	struct open_file *directory = file->f_fsdata;
+
+	return (close(directory->f_id) == 0 ? 0 : errno);
+}
+
+static int
+verified_confdir_stat(struct open_file *file, struct stat *st)
+{
+	struct open_file *directory = file->f_fsdata;
+
+	return (directory->f_ops->fo_stat(directory, st));
+}
+
+static int
+verified_confdir_readdir(struct open_file *file, struct dirent *entry)
+{
+	struct open_file *directory = file->f_fsdata;
+
+	return (directory->f_ops->fo_readdir(directory, entry));
+}
+
+static int
+verified_file_denied(const char *path __unused,
+    struct open_file *file __unused)
+{
+	return (EAUTH);
+}
+
+static struct fs_ops verified_confdir_ops = {
+	.fs_name = "verified-confdir",
+	.fo_open = verified_confdir_open,
+	.fo_close = verified_confdir_close,
+	.fo_read = null_read,
+	.fo_write = null_write,
+	.fo_seek = null_seek,
+	.fo_stat = verified_confdir_stat,
+	.fo_readdir = verified_confdir_readdir
+};
+
+static struct fs_ops verified_denied_ops = {
+	.fs_name = "verified-denied",
+	.fo_open = verified_file_denied
+};
+
 static struct fs_ops verified_archive_raw_ops;
 static struct fs_ops verified_archive_ops;
 
@@ -282,6 +354,8 @@ verified_config_override(const char *path, int mode)
 {
 	if (opening_raw_startup_file)
 		return (NULL);
+	if (strcmp(path, "/boot/conf.d") == 0)
+		return (&verified_confdir_ops);
 	if (verified_archive_allowed(path))
 		return (mode == (O_RDONLY | F_GZIP) ?
 		    &verified_archive_raw_ops : &verified_archive_ops);
@@ -298,7 +372,7 @@ verified_config_override(const char *path, int mode)
 	    strcmp(path, "/boot/loader.conf.local") == 0 ||
 	    strcmp(path, "/boot/solaris/bootenv.rc") == 0)
 		return (&verified_config_ops);
-	return (NULL);
+	return (&verified_denied_ops);
 }
 
 static ssize_t
@@ -332,6 +406,20 @@ verified_config_read_file(const char *path, unsigned char *buffer, size_t limit)
 		return (-1);
 	}
 	return (length);
+}
+
+static bool
+verified_firmware_enforcing(void)
+{
+	UINT8 secure_boot = 0, setup_mode = 1;
+	size_t length = sizeof (secure_boot);
+
+	if (EFI_ERROR(efi_global_getenv("SecureBoot", &secure_boot, &length)) ||
+	    length != sizeof (secure_boot) || secure_boot != 1)
+		return (false);
+	length = sizeof (setup_mode);
+	return (!EFI_ERROR(efi_global_getenv("SetupMode", &setup_mode,
+	    &length)) && length == sizeof (setup_mode) && setup_mode == 0);
 }
 
 static bool
