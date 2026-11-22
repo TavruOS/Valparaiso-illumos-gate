@@ -11,7 +11,7 @@
 .\"
 .\" Copyright 2021 Toomas Soome <tsoome@me.com>
 .\"
-.Dd Oct 16, 2021
+.Dd November 22, 2026
 .Dt INSTALLBOOT 8
 .Os
 .Sh NAME
@@ -141,6 +141,12 @@ and
 .Sy bootia32.efi
 is copied from
 .Sy /boot/loader32.efi .
+If the source program is a PE image that contains a certificate table,
+such as an image signed for UEFI Secure Boot,
+.Nm
+copies it unchanged and does not record the partition location or
+version information in it, because any change would invalidate the
+signature.
 .Ss Options
 The
 .Nm
