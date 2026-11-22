@@ -92,6 +92,7 @@ typedef struct _ib_bootblock {
 	uint32_t		mboot_off;
 	uint32_t		file_size;
 	uint32_t		buf_size;
+	uint32_t		source_size;
 	uint32_t		extra_size;
 } ib_bootblock_t;
 
