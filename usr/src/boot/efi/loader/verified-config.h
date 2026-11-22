@@ -33,6 +33,8 @@ static ssize_t verified_config_read_file(const char *, unsigned char *, size_t);
 
 static const char verified_archive_path[] =
 	"/platform/i86pc/amd64/boot_archive";
+static const char verified_archive_hash_path[] =
+	"/platform/i86pc/amd64/boot_archive.hash";
 
 static const char verified_kernel_path[] =
 	"/platform/i86pc/kernel/amd64/unix";
@@ -48,6 +50,17 @@ static bool
 verified_archive_allowed(const char *path)
 {
 	return (path != NULL && strcmp(path, verified_archive_path) == 0);
+}
+
+static bool
+verified_raw_module_allowed(const char *path, const char *type)
+{
+	if (path == NULL || type == NULL)
+		return (false);
+	if (strcmp(type, "rootfs") == 0)
+		return (verified_archive_allowed(path));
+	return (strcmp(type, "hash") == 0 &&
+	    strcmp(path, verified_archive_hash_path) == 0);
 }
 
 static bool
@@ -273,6 +286,7 @@ verified_config_override(const char *path, int mode)
 		return (mode == (O_RDONLY | F_GZIP) ?
 		    &verified_archive_raw_ops : &verified_archive_ops);
 	if (verified_kernel_allowed(path) ||
+	    strcmp(path, verified_archive_hash_path) == 0 ||
 	    verified_config_find(path) != NULL ||
 	    strncmp(path, "/boot/forth/", sizeof ("/boot/forth/") - 1) == 0 ||
 	    strncmp(path, "/boot/conf.d/", sizeof ("/boot/conf.d/") - 1) == 0 ||
@@ -357,6 +371,6 @@ verified_config_init(void)
 	verified_archive_ops.fo_open = verified_archive_open;
 	stand_file_override = verified_config_override;
 	archsw.arch_kernel_allowed = verified_kernel_allowed;
-	archsw.arch_archive_allowed = verified_archive_allowed;
+	archsw.arch_raw_module_allowed = verified_raw_module_allowed;
 	return (true);
 }

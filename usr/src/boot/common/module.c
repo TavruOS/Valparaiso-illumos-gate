@@ -342,6 +342,11 @@ file_load(char *filename, vm_offset_t dest, struct preloaded_file **result)
 	int error;
 	int i;
 
+	if (preloaded_files != NULL && archsw.arch_raw_module_allowed != NULL) {
+		command_errmsg = "unsigned executable modules are disabled";
+		return (EAUTH);
+	}
+
 	if (preloaded_files == NULL) {
 		last_file_format = 0;
 		if (archsw.arch_kernel_allowed != NULL &&
@@ -548,7 +553,7 @@ build_font_module(void)
 	struct font_info fi;
 	struct fontlist *fl;
 
-	if (STAILQ_EMPTY(&fonts))
+	if (archsw.arch_raw_module_allowed != NULL || STAILQ_EMPTY(&fonts))
 		return;
 
 	/* We can't load first */
@@ -669,7 +674,8 @@ file_assign_hash(int fd, size_t size, int argc, char **argv)
 			break;
 		}
 	}
-	if (name == NULL)
+	if (name == NULL || (archsw.arch_raw_module_allowed != NULL &&
+	    !archsw.arch_raw_module_allowed(name, "rootfs")))
 		return (fp);
 
 	buf = malloc(size + 1);
@@ -721,12 +727,11 @@ file_loadraw(const char *fname, char *type, int argc, char **argv, int insert)
 		return (NULL);
 	}
 
-	/* The verified rootfs path needs no search or preliminary open. */
-	if (archsw.arch_archive_allowed != NULL &&
-	    strcmp(type, "rootfs") == 0) {
-		if (!archsw.arch_archive_allowed(fname)) {
+	/* Verified module paths need no search or preliminary open. */
+	if (archsw.arch_raw_module_allowed != NULL) {
+		if (!archsw.arch_raw_module_allowed(fname, type)) {
 			command_errmsg =
-			    "rootfs path outside verified boot policy";
+			    "module path or type outside verified boot policy";
 			return (NULL);
 		}
 		name = strdup(fname);
@@ -762,8 +767,11 @@ file_loadraw(const char *fname, char *type, int argc, char **argv, int insert)
 	 */
 	if (strcmp(type, "hash") == 0) {
 		fp = file_assign_hash(fd, st.st_size, argc, argv);
-		if (fp != NULL) {
+		if (fp != NULL || archsw.arch_raw_module_allowed != NULL) {
 			(void) close(fd);
+			if (fp == NULL)
+				command_errmsg = "cannot attach verified hash";
+			free(name);
 			return (fp);
 		}
 	}

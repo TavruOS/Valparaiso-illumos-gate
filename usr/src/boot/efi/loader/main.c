@@ -944,9 +944,9 @@ main(int argc, CHAR16 *argv[])
 		printf("Valparaiso startup file verification failed\n");
 		return (EFI_SECURITY_VIOLATION);
 	}
-#endif
-
+#else
 	autoload_font(false);		/* Set up the font list for console. */
+#endif
 	efi_init_environment();
 	bi_isadir();			/* set ISADIR */
 	acpi_detect();
