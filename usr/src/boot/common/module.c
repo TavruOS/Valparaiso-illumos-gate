@@ -721,8 +721,18 @@ file_loadraw(const char *fname, char *type, int argc, char **argv, int insert)
 		return (NULL);
 	}
 
-	/* locate the file on the load path */
-	name = file_search(fname, NULL);
+	/* The verified rootfs path needs no search or preliminary open. */
+	if (archsw.arch_archive_allowed != NULL &&
+	    strcmp(type, "rootfs") == 0) {
+		if (!archsw.arch_archive_allowed(fname)) {
+			command_errmsg =
+			    "rootfs path outside verified boot policy";
+			return (NULL);
+		}
+		name = strdup(fname);
+	} else {
+		name = file_search(fname, NULL);
+	}
 	if (name == NULL) {
 		(void) snprintf(command_errbuf, sizeof (command_errbuf),
 		    "can't find '%s'", fname);
