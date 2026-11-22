@@ -188,6 +188,8 @@ zf_open(const char *fname, struct open_file *f)
 	/* Try to open the compressed datafile */
 	rawfd = open(fname, O_RDONLY | F_GZIP);
 	if (rawfd == -1) {
+		if (errno == EAUTH)
+			return (EAUTH);
 		/* add .gz sufix and try again */
 		zfname = malloc(strlen(fname) + 4);
 		if (zfname == NULL)
