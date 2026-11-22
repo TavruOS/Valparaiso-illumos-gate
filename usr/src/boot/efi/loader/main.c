@@ -454,6 +454,7 @@ find_currdev(EFI_LOADED_IMAGE_PROTOCOL *img)
 	return (false);
 }
 
+#ifndef VALPARAISO_VERIFY_CONFIG
 static bool
 interactive_interrupt(const char *msg)
 {
@@ -481,6 +482,7 @@ interactive_interrupt(const char *msg)
 	} while (now - then < fail_timeout);
 	return (false);
 }
+#endif
 
 static void
 setenv_int(const char *key, int val)
