@@ -941,7 +941,7 @@ main(int argc, CHAR16 *argv[])
 
 #ifdef VALPARAISO_VERIFY_CONFIG
 	if (!verified_config_init()) {
-		printf("Valparaiso loader.conf verification failed\n");
+		printf("Valparaiso startup file verification failed\n");
 		return (EFI_SECURITY_VIOLATION);
 	}
 #endif
