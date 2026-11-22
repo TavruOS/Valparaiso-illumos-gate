@@ -16,7 +16,7 @@ extern int valparaiso_check_boot_file(const void *, size_t, const char *,
 struct verified_startup_file {
 	const char *path;
 	size_t length;
-	unsigned char bytes[64 * 1024 + 1];
+	unsigned char *bytes;
 };
 
 static unsigned char verified_manifest[64 * 1024 + 1];
@@ -25,11 +25,24 @@ static bool opening_raw_startup_file;
 
 static ssize_t verified_config_read_file(const char *, unsigned char *, size_t);
 
+#define	VERIFIED_CONFIG_LIMIT (64 * 1024)
+#define	VERIFIED_KERNEL_LIMIT (16 * 1024 * 1024)
+
+static const char verified_kernel_path[] =
+	"/platform/i86pc/kernel/amd64/unix";
+static unsigned char verified_startup_bytes[3][VERIFIED_CONFIG_LIMIT + 1];
 static struct verified_startup_file verified_startup_files[] = {
-	{ .path = "/boot/loader.rc" },
-	{ .path = "/boot/defaults/loader.conf" },
-	{ .path = "/boot/loader.conf" }
+	{ .path = "/boot/loader.rc", .bytes = verified_startup_bytes[0] },
+	{ .path = "/boot/defaults/loader.conf",
+	    .bytes = verified_startup_bytes[1] },
+	{ .path = "/boot/loader.conf", .bytes = verified_startup_bytes[2] }
 };
+
+static bool
+verified_kernel_allowed(const char *path)
+{
+	return (path != NULL && strcmp(path, verified_kernel_path) == 0);
+}
 
 static struct verified_startup_file *
 verified_config_find(const char *path)
@@ -53,11 +66,15 @@ verified_config_open(const char *path, struct open_file *file)
 
 	snapshot = verified_config_find(path);
 	if (snapshot == NULL) {
-		snapshot = malloc(sizeof (*snapshot));
+		size_t limit = verified_kernel_allowed(path) ?
+		    VERIFIED_KERNEL_LIMIT : VERIFIED_CONFIG_LIMIT;
+
+		snapshot = malloc(sizeof (*snapshot) + limit + 1);
 		if (snapshot == NULL)
 			return (ENOMEM);
+		snapshot->bytes = (unsigned char *)(snapshot + 1);
 		length = verified_config_read_file(path, snapshot->bytes,
-		    sizeof (snapshot->bytes));
+		    limit + 1);
 		if (length < 0) {
 			int error = errno;
 
@@ -159,7 +176,8 @@ verified_config_override(const char *path)
 {
 	if (opening_raw_startup_file)
 		return (NULL);
-	if (verified_config_find(path) != NULL ||
+	if (verified_kernel_allowed(path) ||
+	    verified_config_find(path) != NULL ||
 	    strncmp(path, "/boot/forth/", sizeof ("/boot/forth/") - 1) == 0 ||
 	    strncmp(path, "/boot/conf.d/", sizeof ("/boot/conf.d/") - 1) == 0 ||
 	    strncmp(path, "/boot/defaults/",
@@ -226,7 +244,7 @@ verified_config_init(void)
 		struct verified_startup_file *snapshot =
 		    &verified_startup_files[i];
 		ssize_t length = verified_config_read_file(snapshot->path,
-		    snapshot->bytes, sizeof (snapshot->bytes));
+		    snapshot->bytes, VERIFIED_CONFIG_LIMIT + 1);
 
 		if (length < 0 || !valparaiso_check_boot_file(verified_manifest,
 		    mlen, snapshot->path + 1, snapshot->bytes, length)) {
@@ -238,5 +256,6 @@ verified_config_init(void)
 
 	verified_manifest_length = mlen;
 	stand_file_override = verified_config_override;
+	archsw.arch_kernel_allowed = verified_kernel_allowed;
 	return (true);
 }

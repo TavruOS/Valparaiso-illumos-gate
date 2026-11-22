@@ -342,8 +342,16 @@ file_load(char *filename, vm_offset_t dest, struct preloaded_file **result)
 	int error;
 	int i;
 
-	if (preloaded_files == NULL)
+	if (preloaded_files == NULL) {
 		last_file_format = 0;
+		if (archsw.arch_kernel_allowed != NULL &&
+		    !archsw.arch_kernel_allowed(filename)) {
+			(void) snprintf(command_errbuf, sizeof (command_errbuf),
+			    "kernel path outside verified boot policy: %s",
+			    filename);
+			return (EAUTH);
+		}
+	}
 
 	error = EFTYPE;
 	for (i = last_file_format, fp = NULL;
