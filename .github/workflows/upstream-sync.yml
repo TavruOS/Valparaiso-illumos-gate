@@ -1,0 +1,67 @@
+name: Nightly upstream sync
+
+# Each night, merge illumos-gate master into a sync branch and open a pull
+# request for review. Nothing is merged into master automatically. A merge
+# conflict opens an issue instead.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      UPSTREAM: illumos/illumos-gate
+    steps:
+      - name: Merge upstream into a sync branch and open a pull request
+        run: |
+          set -euo pipefail
+          up=$(gh api "repos/$UPSTREAM/commits/master" -q .sha)
+          ahead=$(gh api "repos/$REPO/compare/master...${UPSTREAM%%/*}:illumos-gate:$up" -q .ahead_by)
+          if [ "$ahead" = 0 ]; then
+            echo "Up to date with $UPSTREAM ${up:0:10}"
+            exit 0
+          fi
+
+          open=$(gh pr list -R "$REPO" --state open --search "head:sync/illumos-" --json number -q 'length')
+          if [ "$open" != 0 ]; then
+            echo "A sync pull request is already open; review it first"
+            exit 0
+          fi
+
+          branch="sync/illumos-$(date -u +%Y%m%d)"
+          base=$(gh api "repos/$REPO/commits/master" -q .sha)
+          if ! gh api "repos/$REPO/branches/$branch" >/dev/null 2>&1; then
+            gh api "repos/$REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$base" >/dev/null
+          fi
+
+          if ! gh api "repos/$REPO/merges" -f base="$branch" -f head="$up" \
+              -f commit_message="Merge illumos-gate master (${up:0:10}) into Valparaiso" >/dev/null; then
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$branch" || true
+            title="Upstream sync conflict with illumos-gate ${up:0:10}"
+            if [ "$(gh issue list -R "$REPO" --state open --search "in:title \"$title\"" --json number -q length)" = 0 ]; then
+              gh issue create -R "$REPO" --title "$title" --body "The nightly sync could not merge illumos-gate master ($up) into master automatically. Merge it by hand and resolve the conflicts."
+            fi
+            exit 1
+          fi
+
+          list=$(gh api "repos/$REPO/compare/master...$up" \
+            -q '.commits[] | "- " + (.commit.message | split("\n")[0])' | head -100)
+          gh pr create -R "$REPO" --base master --head "$branch" \
+            --title "Sync with illumos-gate master (${up:0:10})" \
+            --body "Nightly merge of $ahead upstream commit(s). Review before merging; nothing is built here.
+
+          $list"
