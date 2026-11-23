@@ -897,6 +897,14 @@ multiboot2_exec(struct preloaded_file *fp)
 		}
 	}
 
+	if (archsw.arch_kernel_args_allowed != NULL &&
+	    !archsw.arch_kernel_args_allowed(fp->f_args)) {
+		printf("kernel options outside verified boot policy: %s\n",
+		    fp->f_args);
+		error = EAUTH;
+		goto error;
+	}
+
 	error = mb_kernel_cmdline(fp, rootdev, &cmdline);
 	if (error != 0)
 		goto error;

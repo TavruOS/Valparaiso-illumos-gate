@@ -369,6 +369,7 @@ struct arch_switch
 	vm_offset_t (*arch_loadaddr)(uint_t type, void *data, vm_offset_t addr);
 	bool (*arch_kernel_allowed)(const char *path);
 	bool (*arch_raw_module_allowed)(const char *path, const char *type);
+	bool (*arch_kernel_args_allowed)(const char *args);
 #define	LOAD_ELF	1	/* data points to the ELF header. */
 #define	LOAD_RAW	2	/* data points to the module file name. */
 #define	LOAD_KERN	3	/* data points to the kernel file name. */
