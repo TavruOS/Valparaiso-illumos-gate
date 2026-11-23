@@ -12,6 +12,8 @@ extern int valparaiso_check_manifest(const void *, size_t, const void *,
     size_t);
 extern int valparaiso_check_boot_file(const void *, size_t, const char *,
     const void *, size_t);
+extern int valparaiso_manifest_security_version(const unsigned char *, size_t,
+    uint32_t *);
 
 struct verified_startup_file {
 	const char *path;
@@ -465,6 +467,66 @@ verified_firmware_enforcing(void)
 }
 
 /*
+ * Rollback protection. The highest manifest security version booted so far
+ * is kept in a non-volatile variable without runtime access, so the running
+ * system cannot lower it. Refuse older manifests and raise the minimum when
+ * a newer one boots. Any unexpected variable state fails closed.
+ */
+static EFI_GUID verified_rollback_guid = { 0x6f1c3a52, 0x9b4e, 0x4d27,
+	{ 0xa8, 0xe1, 0x5c, 0x0d, 0x7f, 0x3b, 0x2e, 0x94 } };
+static CHAR16 verified_rollback_name[] = L"ValparaisoMinimumSecurityVersion";
+#define	VERIFIED_ROLLBACK_ATTR \
+	(EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS)
+
+static bool
+verified_rollback_check(const unsigned char *manifest, size_t length)
+{
+	uint32_t version, minimum = 0;
+	UINT8 stored[sizeof (uint32_t)];
+	UINT32 attr = 0;
+	UINTN size = sizeof (stored);
+	EFI_STATUS status;
+
+	if (!valparaiso_manifest_security_version(manifest, length, &version))
+		return (false);
+
+	status = RS->GetVariable(verified_rollback_name,
+	    &verified_rollback_guid, &attr, &size, stored);
+	if (status == EFI_SUCCESS) {
+		if (size != sizeof (stored) || attr != VERIFIED_ROLLBACK_ATTR) {
+			printf("Valparaiso: invalid rollback state\n");
+			return (false);
+		}
+		minimum = (uint32_t)stored[0] | (uint32_t)stored[1] << 8 |
+		    (uint32_t)stored[2] << 16 | (uint32_t)stored[3] << 24;
+	} else if (status != EFI_NOT_FOUND) {
+		printf("Valparaiso: cannot read rollback state\n");
+		return (false);
+	}
+
+	if (version < minimum) {
+		printf("Valparaiso: boot manifest version %u is below %u\n",
+		    version, minimum);
+		return (false);
+	}
+	if (status == EFI_SUCCESS && version == minimum)
+		return (true);
+
+	stored[0] = version & 0xff;
+	stored[1] = (version >> 8) & 0xff;
+	stored[2] = (version >> 16) & 0xff;
+	stored[3] = (version >> 24) & 0xff;
+	status = RS->SetVariable(verified_rollback_name,
+	    &verified_rollback_guid, VERIFIED_ROLLBACK_ATTR, sizeof (stored),
+	    stored);
+	if (EFI_ERROR(status)) {
+		printf("Valparaiso: cannot record rollback state\n");
+		return (false);
+	}
+	return (true);
+}
+
+/*
  * The manifest has already passed signature and format validation. Pin each
  * listed config fragment and optional startup file before running Forth.
  */
@@ -558,6 +620,8 @@ verified_config_init(void)
 	if (mlen < 0 || slen < 0 ||
 	    !valparaiso_check_manifest(verified_manifest, mlen, signature,
 	    slen))
+		return (false);
+	if (!verified_rollback_check(verified_manifest, mlen))
 		return (false);
 
 	for (size_t i = 0; i < sizeof (verified_startup_files) /
