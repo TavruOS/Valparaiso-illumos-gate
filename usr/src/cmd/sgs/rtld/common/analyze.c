@@ -36,6 +36,7 @@
 #include	<sys/debug.h>
 #include	<fcntl.h>
 #include	<limits.h>
+#include	<stdint.h>
 #include	<dlfcn.h>
 #include	<errno.h>
 #include	<link.h>
@@ -331,6 +332,58 @@ relocate_so(Lm_list *lml, Rt_map *lmp, int *relocated, int now, int *in_nfavl)
 }
 
 /*
+ * Seal complete RELRO pages after relocations, including deferred copies.
+ * Leave lazy-bound objects alone until their PLT layout can be checked.
+ */
+static int
+protect_relro(Rt_map *lmp)
+{
+	Phdr		*phdr;
+	uintptr_t	base, start, end;
+	mmapobj_result_t *mpp;
+
+	if (THIS_IS_NOT_ELF(lmp) || (FLAGS(lmp) & FLG_RT_IMGALLOC) ||
+	    MMAPCNT(lmp) == 0 ||
+	    (MODE(lmp) & RTLD_NOW) == 0 || (phdr = PTRELRO(lmp)) == NULL)
+		return (1);
+
+	if (phdr->p_memsz == 0) {
+		PTRELRO(lmp) = NULL;
+		return (1);
+	}
+
+	base = (FLAGS(lmp) & FLG_RT_FIXED) ? 0 : ADDR(lmp);
+	if (phdr->p_vaddr > UINTPTR_MAX - base)
+		goto invalid;
+	start = base + phdr->p_vaddr;
+	if (phdr->p_memsz > UINTPTR_MAX - start)
+		goto invalid;
+	end = start + phdr->p_memsz;
+	mpp = find_segment((caddr_t)start, lmp);
+	if (mpp == NULL || (mpp->mr_flags & MR_TYPE_MASK) == MR_PADDING ||
+	    (mpp->mr_prot & (PROT_READ | PROT_WRITE)) !=
+	    (PROT_READ | PROT_WRITE) ||
+	    mpp != find_segment((caddr_t)(end - 1), lmp))
+		goto invalid;
+
+	start = S_ALIGN(start, syspagsz);
+	end = S_ALIGN(end, syspagsz);
+	if (start != end && mprotect((void *)start, end - start,
+	    mpp->mr_prot & ~PROT_WRITE) == -1) {
+		int err = errno;
+		eprintf(LIST(lmp), ERR_FATAL, MSG_INTL(MSG_SYS_MPROT),
+		    NAME(lmp), strerror(err));
+		return (0);
+	}
+	PTRELRO(lmp) = NULL;
+	return (1);
+
+invalid:
+	eprintf(LIST(lmp), ERR_FATAL, MSG_INTL(MSG_RELRO_RANGE), NAME(lmp));
+	return (0);
+}
+
+/*
  * Relocate the objects on a link-map control list.
  */
 static int
@@ -411,7 +464,7 @@ _relocate_lmc(Lm_list *lml, Aliste lmco, Rt_map *nlmp, int *relocated,
 			return (0);
 #endif
 		if (COPY_S(nlmp) == NULL)
-			return (1);
+			goto relro;
 
 		if ((LIST(nlmp)->lm_flags & LML_FLG_TRC_ENABLE) &&
 		    (((rtld_flags & RT_FL_SILENCERR) == 0) ||
@@ -456,6 +509,15 @@ _relocate_lmc(Lm_list *lml, Aliste lmco, Rt_map *nlmp, int *relocated,
 
 		free(COPY_S(nlmp));
 		COPY_S(nlmp) = NULL;
+	}
+
+relro:
+	if ((lml->lm_flags & LML_FLG_TRC_ENABLE) == 0) {
+		for (lmp = nlmp; lmp; lmp = NEXT_RT_MAP(lmp)) {
+			if ((FLAGS(lmp) & (FLG_RT_RELOCED | FLG_RT_DELETE)) ==
+			    FLG_RT_RELOCED && !protect_relro(lmp))
+				return (0);
+		}
 	}
 	return (1);
 }
@@ -604,7 +666,9 @@ relocate_lmc(Lm_list *lml, Aliste nlmco, Rt_map *clmp, Rt_map *nlmp,
 			 * then the process will receive a fatal error at that
 			 * time.  But, the .plt may never be called.
 			 */
-			if (relocate_so(lml, lmp, 0, 1, in_nfavl) == 0)
+			if (relocate_so(lml, lmp, 0, 1, in_nfavl) == 0 ||
+			    (((lml->lm_flags & LML_FLG_TRC_ENABLE) == 0) &&
+			    !protect_relro(lmp)))
 				pret = 0;
 		}
 

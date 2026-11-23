@@ -575,7 +575,7 @@ setup(char **envp, auxv_t *auxv, Word _flags, char *_platform, int _syspagsz,
 				}
 				if ((pptr->p_type == PT_LOAD) &&
 				    (pptr->p_filesz || pptr->p_memsz)) {
-					int	perm = (PROT_READ | PROT_EXEC);
+					int	perm = 0;
 					size_t	off;
 
 					if (i_offset && pptr->p_filesz &&
@@ -588,6 +588,10 @@ setup(char **envp, auxv_t *auxv, Word _flags, char *_platform, int _syspagsz,
 						i_offset = 0;
 					}
 
+					if (pptr->p_flags & PF_R)
+						perm |= PROT_READ;
+					if (pptr->p_flags & PF_X)
+						perm |= PROT_EXEC;
 					if (pptr->p_flags & PF_W)
 						perm |= PROT_WRITE;
 

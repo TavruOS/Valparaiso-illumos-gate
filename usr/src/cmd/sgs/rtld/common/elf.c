@@ -1627,6 +1627,7 @@ elf_new_lmp(Lm_list *lml, Aliste lmco, Fdesc *fdp, Addr addr, size_t msize,
 	Rt_map		*lmp;
 	Ehdr		*ehdr = (Ehdr *)addr;
 	Phdr		*phdr, *tphdr = NULL, *dphdr = NULL, *uphdr = NULL;
+	Phdr		*rphdr = NULL;
 	Dyn		*dyn = (Dyn *)odyn;
 	Cap		*cap = NULL;
 	int		ndx;
@@ -1661,6 +1662,14 @@ elf_new_lmp(Lm_list *lml, Aliste lmco, Fdesc *fdp, Addr addr, size_t msize,
 			break;
 		case PT_TLS:
 			tphdr = phdr;
+			break;
+		case PT_GNU_RELRO:
+			if (rphdr != NULL) {
+				eprintf(lml, ERR_FATAL,
+				    MSG_INTL(MSG_RELRO_RANGE), name);
+				return (NULL);
+			}
+			rphdr = phdr;
 			break;
 		case PT_SUNWCAP:
 			cap = (Cap *)((uintptr_t)phdr->p_vaddr + base);
@@ -1714,6 +1723,7 @@ elf_new_lmp(Lm_list *lml, Aliste lmco, Fdesc *fdp, Addr addr, size_t msize,
 	DYN(lmp) = dyn;
 	DYNINFOCNT(lmp) = dyncnt;
 	PTUNWIND(lmp) = uphdr;
+	PTRELRO(lmp) = rphdr;
 
 	if (ehdr->e_type == ET_EXEC)
 		FLAGS(lmp) |= FLG_RT_FIXED;
