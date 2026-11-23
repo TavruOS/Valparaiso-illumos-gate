@@ -263,6 +263,11 @@ AMR_OBJS = amr.o
 IPMI_OBJS +=	ipmi_main.o ipmi.o ipmi_kcs.o
 
 #
+#	TPM 2.0 CRB driver
+#
+TPM2_OBJS +=	tpm2.o
+
+#
 #	IOMMULIB module
 #
 IOMMULIB_OBJS = iommulib.o

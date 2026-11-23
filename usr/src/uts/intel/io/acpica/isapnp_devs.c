@@ -68,6 +68,9 @@ static const isapnp_desc_t isapnp_descs[] = {
 	{ "PNP0C31", B_FALSE, "tpm", NULL, "Generic Trusted Platform Module" },
 	{ "ATM1200", B_FALSE, "tpm", NULL, "Generic Trusted Platform Module" },
 	{ "IFX0102", B_FALSE, "tpm", NULL, "Generic Trusted Platform Module" },
+
+	/* tpm2(4D) binds to "tpm2" */
+	{ "MSFT0101", B_FALSE, "tpm2", NULL, "TPM 2.0 Security Device" },
 	{ "BCM0101", B_FALSE, "tpm", NULL, "Generic Trusted Platform Module" },
 	{ "NSC1200", B_FALSE, "tpm", NULL, "Generic Trusted Platform Module" },
 
