@@ -4232,6 +4232,27 @@ is_readonly(char *root)
 	return (0);
 }
 
+/*
+ * Valparaiso verified boot: the enforcing EFI loader refuses a boot archive
+ * that is not listed in the signed /boot.manifest of its boot root. Rebuilding
+ * the archive on such a root would leave it unbootable, so refuse before
+ * writing. The release signing workflow sets BAM_UNSIGNED_ARCHIVE_OK=1 when it
+ * rebuilds an archive that it signs afterwards.
+ */
+static boolean_t
+signed_boot_root(const char *root)
+{
+	char path[PATH_MAX];
+	struct stat sb;
+	const char *ok = getenv("BAM_UNSIGNED_ARCHIVE_OK");
+
+	if (ok != NULL && strcmp(ok, "1") == 0)
+		return (B_FALSE);
+	(void) snprintf(path, sizeof (path), "%s%sboot.manifest", root,
+	    root[strlen(root) - 1] == '/' ? "" : "/");
+	return (lstat(path, &sb) == 0 ? B_TRUE : B_FALSE);
+}
+
 static error_t
 update_archive(char *root, char *opt)
 {
@@ -4314,6 +4335,24 @@ update_archive(char *root, char *opt)
 		}
 
 		bam_exit((ret != 0) ? 1 : 0);
+	}
+
+	if (ret == 1 && signed_boot_root(root)) {
+		/*
+		 * The boot-time check must not fail: boot-archive going to
+		 * maintenance would stop the boot. Keep the signed archive.
+		 */
+		if (bam_smf_check) {
+			bam_print(_("%s: boot archive is out of date but is "
+			    "signed for verified boot; keeping the signed "
+			    "archive\n"), root);
+			return (BAM_SUCCESS);
+		}
+		bam_error(_("%s: refusing to rebuild the boot archive: this "
+		    "boot root uses a signed boot manifest and an unsigned "
+		    "archive would not boot. Install a signed update "
+		    "instead.\n"), root);
+		return (BAM_ERROR);
 	}
 
 	if (ret == 1) {
