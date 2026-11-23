@@ -30,8 +30,8 @@
 #
 <include global_zone_only_component>
 set name=pkg.fmri value=pkg:/driver/crypto/tpm@$(PKGVERS)
-set name=pkg.summary value="Trusted Platform Module driver"
-set name=pkg.description value="Trusted Platform Module driver"
+set name=pkg.summary value="Trusted Platform Module drivers"
+set name=pkg.description value="Trusted Platform Module 1.2 and 2.0 drivers"
 set name=info.classification \
     value="org.opensolaris.category.2008:Drivers/Other Peripherals"
 set name=variant.arch value=$(ARCH)
@@ -39,9 +39,14 @@ $(i386_ONLY)dir path=kernel group=sys
 $(i386_ONLY)dir path=kernel/drv group=sys
 $(i386_ONLY)dir path=kernel/drv/$(ARCH64) group=sys
 $(i386_ONLY)file path=kernel/drv/$(ARCH64)/tpm group=sys
+$(i386_ONLY)file path=kernel/drv/$(ARCH64)/tpm2 group=sys
 $(i386_ONLY)driver name=tpm perms="* 0600 root sys" \
     devlink=type=ddi_pseudo;name=tpm\t\D
+$(i386_ONLY)driver name=tpm2 perms="* 0600 root sys" \
+    devlink=type=ddi_pseudo;name=tpm2\t\M0
 legacy pkg=SUNWtpm desc="Trusted Platform Module driver" \
     name="Trusted Platform Module driver" version=11.11.0,REV=2009.11.11
 license cr_Sun license=cr_Sun
 license lic_CDDL license=lic_CDDL
+license usr/src/uts/intel/io/tpm2/THIRDPARTYLICENSE \
+    license=usr/src/uts/intel/io/tpm2/THIRDPARTYLICENSE
