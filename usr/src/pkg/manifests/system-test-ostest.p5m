@@ -258,6 +258,7 @@ file path=opt/os-tests/tests/sdevfs/sdevfs_eisdir mode=0555
 dir  path=opt/os-tests/tests/secflags
 file path=opt/os-tests/tests/secflags/addrs-32 mode=0555
 file path=opt/os-tests/tests/secflags/addrs-64 mode=0555
+file path=opt/os-tests/tests/secflags/pie_heap mode=0555
 file path=opt/os-tests/tests/secflags/secflags_aslr mode=0555
 file path=opt/os-tests/tests/secflags/secflags_core mode=0555
 file path=opt/os-tests/tests/secflags/secflags_dts mode=0555
@@ -265,6 +266,7 @@ file path=opt/os-tests/tests/secflags/secflags_elfdump mode=0555
 file path=opt/os-tests/tests/secflags/secflags_forbidnullmap mode=0555
 file path=opt/os-tests/tests/secflags/secflags_limits mode=0555
 file path=opt/os-tests/tests/secflags/secflags_noexecstack mode=0555
+file path=opt/os-tests/tests/secflags/secflags_pie_heap mode=0555
 file path=opt/os-tests/tests/secflags/secflags_proc mode=0555
 file path=opt/os-tests/tests/secflags/secflags_psecflags mode=0555
 file path=opt/os-tests/tests/secflags/secflags_syscall mode=0555

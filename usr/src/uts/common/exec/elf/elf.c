@@ -80,6 +80,7 @@
 
 extern int at_flags;
 extern volatile size_t aslr_max_brk_skew;
+extern uintptr_t forbidden_null_mapping_sz;
 
 #define	ORIGIN_STR	"ORIGIN"
 #define	ORIGIN_STR_SIZE	6
@@ -747,9 +748,59 @@ elfexec(vnode_t *vp, execa_t *uap, uarg_t *args, intpdata_t *idatap,
 		 */
 		if (uphdr) {
 			if (ehdrp->e_type == ET_DYN) {
-				/* don't use the first page */
-				bigwad->exenv.ex_brkbase = (caddr_t)PAGESIZE;
-				bigwad->exenv.ex_bssbase = (caddr_t)PAGESIZE;
+				uintptr_t heapbase = PAGESIZE;
+
+				/*
+				 * The PIE heap is separate from its load
+				 * segments. Start beyond the last address
+				 * rejected by valid_usr_range().
+				 */
+				if (secflag_enabled(curproc,
+				    PROC_SEC_FORBIDNULLMAP)) {
+					struct as *as = curproc->p_as;
+					uintptr_t floor = P2ALIGN(
+					    forbidden_null_mapping_sz,
+					    PAGESIZE);
+					size_t skew = 0;
+					size_t gapsize = PAGESIZE;
+					caddr_t gap;
+
+					if (secflag_enabled(curproc,
+					    PROC_SEC_ASLR)) {
+						size_t off;
+
+						ASSERT(ISP2(aslr_max_brk_skew));
+						(void) random_get_pseudo_bytes(
+						    (uint8_t *)&off,
+						    sizeof (off));
+						skew = P2ROUNDUP(P2PHASE(off,
+						    aslr_max_brk_skew),
+						    PAGESIZE);
+					}
+
+					if (floor > UINTPTR_MAX - PAGESIZE ||
+					    skew > UINTPTR_MAX - PAGESIZE -
+					    floor) {
+						VN_RELE(nvp);
+						error = ENOMEM;
+						goto bad;
+					}
+
+					heapbase = floor + PAGESIZE + skew;
+					gap = (caddr_t)heapbase;
+					if (valid_usr_range(gap, PAGESIZE,
+					    PROT_READ | PROT_WRITE, as,
+					    as->a_userlimit) != RANGE_OKAY ||
+					    as_gap(as, PAGESIZE, &gap, &gapsize,
+					    0, NULL) != 0) {
+						VN_RELE(nvp);
+						error = ENOMEM;
+						goto bad;
+					}
+					brksize = 0;
+				}
+				bigwad->exenv.ex_brkbase = (caddr_t)heapbase;
+				bigwad->exenv.ex_bssbase = (caddr_t)heapbase;
 			} else {
 				bigwad->exenv.ex_bssbase = bssbase;
 				bigwad->exenv.ex_brkbase = brkbase;

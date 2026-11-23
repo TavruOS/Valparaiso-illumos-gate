@@ -22,13 +22,14 @@ PROG =	secflags_aslr		\
 	secflags_forbidnullmap	\
 	secflags_limits		\
 	secflags_noexecstack	\
+	secflags_pie_heap	\
 	secflags_proc		\
 	secflags_psecflags	\
 	secflags_syscall	\
 	secflags_truss		\
 	secflags_zonecfg
 
-PROG += addrs-32 addrs-64 stacky
+PROG += addrs-32 addrs-64 pie_heap stacky
 
 ROOTOPTPKG = $(ROOT)/opt/os-tests
 TESTDIR = $(ROOTOPTPKG)/tests/secflags
@@ -53,6 +54,11 @@ stacky: stacky.o
 
 secflags_syscall: secflags_syscall.c
 	$(LINK.c) secflags_syscall.c -o $@ $(LDLIBS)
+	$(POST_PROCESS)
+
+# Building a dynamic PIE requires the GNU link editor.
+pie_heap: pie_heap.c
+	LD_ALTEXEC=/usr/bin/gld $(CC) $(CFLAGS64) -fPIE -pie pie_heap.c -o $@
 	$(POST_PROCESS)
 
 all: $(PROG)
