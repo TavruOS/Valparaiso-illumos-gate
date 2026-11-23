@@ -71,6 +71,46 @@ verified_kernel_allowed(const char *path)
 	return (path != NULL && strcmp(path, verified_kernel_path) == 0);
 }
 
+/*
+ * Refuse kernel flags that hand control of the booted system to the console:
+ * -k loads kmdb, -d enters it before startup and -a prompts for an alternate
+ * system file. Skip the property list that follows -B.
+ */
+#define	VERIFIED_ARG_END(c)	((c) == '\0' || (c) == ' ' || (c) == '\t')
+
+static bool
+verified_kernel_args_allowed(const char *args)
+{
+	const char *p = args;
+
+	if (p == NULL)
+		return (true);
+	while (*p != '\0') {
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p != '-') {
+			while (!VERIFIED_ARG_END(*p))
+				p++;
+			continue;
+		}
+		for (p++; !VERIFIED_ARG_END(*p); p++) {
+			if (*p == 'B') {
+				if (VERIFIED_ARG_END(p[1])) {
+					p++;
+					while (*p == ' ' || *p == '\t')
+						p++;
+				}
+				while (!VERIFIED_ARG_END(*p))
+					p++;
+				break;
+			}
+			if (*p == 'k' || *p == 'd' || *p == 'a')
+				return (false);
+		}
+	}
+	return (true);
+}
+
 static struct verified_startup_file *
 verified_config_find(const char *path)
 {
@@ -545,5 +585,6 @@ verified_config_init(void)
 	stand_file_override = verified_config_override;
 	archsw.arch_kernel_allowed = verified_kernel_allowed;
 	archsw.arch_raw_module_allowed = verified_raw_module_allowed;
+	archsw.arch_kernel_args_allowed = verified_kernel_args_allowed;
 	return (true);
 }
