@@ -42,6 +42,7 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
+#include <sys/sysmacros.h>
 #include <sys/errno.h>
 #include <sys/file.h>
 #include <sys/open.h>
