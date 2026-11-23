@@ -761,12 +761,34 @@ elfexec(vnode_t *vp, execa_t *uap, uarg_t *args, intpdata_t *idatap,
 					uintptr_t floor = P2ALIGN(
 					    forbidden_null_mapping_sz,
 					    PAGESIZE);
-					caddr_t gap = (caddr_t)(floor +
-					    PAGESIZE);
+					size_t skew = 0;
 					size_t gapsize = PAGESIZE;
+					caddr_t gap;
+
+					if (secflag_enabled(curproc,
+					    PROC_SEC_ASLR)) {
+						size_t off;
+
+						ASSERT(ISP2(aslr_max_brk_skew));
+						(void) random_get_pseudo_bytes(
+						    (uint8_t *)&off,
+						    sizeof (off));
+						skew = P2ROUNDUP(P2PHASE(off,
+						    aslr_max_brk_skew),
+						    PAGESIZE);
+					}
 
 					if (floor > UINTPTR_MAX - PAGESIZE ||
-					    valid_usr_range(gap, PAGESIZE,
+					    skew > UINTPTR_MAX - PAGESIZE -
+					    floor) {
+						VN_RELE(nvp);
+						error = ENOMEM;
+						goto bad;
+					}
+
+					heapbase = floor + PAGESIZE + skew;
+					gap = (caddr_t)heapbase;
+					if (valid_usr_range(gap, PAGESIZE,
 					    PROT_READ | PROT_WRITE, as,
 					    as->a_userlimit) != RANGE_OKAY ||
 					    as_gap(as, PAGESIZE, &gap, &gapsize,
@@ -775,7 +797,6 @@ elfexec(vnode_t *vp, execa_t *uap, uarg_t *args, intpdata_t *idatap,
 						error = ENOMEM;
 						goto bad;
 					}
-					heapbase = floor + PAGESIZE;
 					brksize = 0;
 				}
 				bigwad->exenv.ex_brkbase = (caddr_t)heapbase;

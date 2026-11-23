@@ -160,7 +160,7 @@ boolean_t zvol_unmap_sync_enabled = B_FALSE;
 extern int zfs_set_prop_nvlist(const char *, zprop_source_t,
     nvlist_t *, nvlist_t *);
 static int zvol_remove_zv(zvol_state_t *);
-static int zvol_get_data(void *arg, lr_write_t *lr, char *buf,
+static int zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
     struct lwb *lwb, zio_t *zio);
 static int zvol_dumpify(zvol_state_t *zv);
 static int zvol_dump_fini(zvol_state_t *zv);
@@ -644,10 +644,8 @@ zvol_first_open(zvol_state_t *zv, boolean_t rdonly)
 	if (error)
 		return (error);
 
-	zv->zv_objset = os;
 	error = zap_lookup(os, ZVOL_ZAP_OBJ, "size", 8, 1, &volsize);
 	if (error) {
-		ASSERT(error == 0);
 		dmu_objset_disown(os, 1, zv);
 		return (error);
 	}
@@ -658,6 +656,7 @@ zvol_first_open(zvol_state_t *zv, boolean_t rdonly)
 		return (error);
 	}
 
+	zv->zv_objset = os;
 	zvol_size_changed(zv, volsize);
 	zv->zv_zilog = zil_open(os, zvol_get_data);
 
@@ -991,7 +990,8 @@ zvol_get_done(zgd_t *zgd, int error)
  * Get data to generate a TX_WRITE intent log record.
  */
 static int
-zvol_get_data(void *arg, lr_write_t *lr, char *buf, struct lwb *lwb, zio_t *zio)
+zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
+    struct lwb *lwb, zio_t *zio)
 {
 	zvol_state_t *zv = arg;
 	uint64_t offset = lr->lr_offset;
@@ -1794,9 +1794,15 @@ zvol_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 		smt_begin_unsafe();
 
 		for (int i = 0; i < dfl->dfl_num_exts; i++) {
-			uint64_t start = dfl->dfl_exts[i].dfle_start,
+			uint64_t start = dfl->dfl_offset +
+			    dfl->dfl_exts[i].dfle_start,
 			    length = dfl->dfl_exts[i].dfle_length,
 			    end = start + length;
+
+			if (start < dfl->dfl_offset) {
+				error = SET_ERROR(EINVAL);
+				break;
+			}
 
 			/*
 			 * Apply Postel's Law to length-checking.  If they

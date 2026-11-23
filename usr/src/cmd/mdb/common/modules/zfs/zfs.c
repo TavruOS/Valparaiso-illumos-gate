@@ -23,7 +23,7 @@
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright 2020 Joyent, Inc.
- * Copyright 2025 Oxide Computer Company
+ * Copyright 2026 Oxide Computer Company
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -60,10 +60,10 @@
 
 #ifdef _KERNEL
 #define	ZFS_OBJ_NAME	"zfs"
+extern int64_t mdb_gethrtime(void);
 #else
 #define	ZFS_OBJ_NAME	"libzpool.so.1"
 #endif
-extern int64_t mdb_gethrtime(void);
 
 #define	ZFS_STRUCT	"struct " ZFS_OBJ_NAME "`"
 
@@ -434,6 +434,7 @@ zfs_params(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		"zfs_arc_p_min_shift",
 		"zfs_arc_shrink_shift",
 		"zfs_async_block_max_blocks",
+		"zfs_async_free_zio_wait_interval",
 		"zfs_ccw_retry_interval",
 		"zfs_commit_timeout_pct",
 		"zfs_compressed_arc_enabled",
@@ -462,10 +463,12 @@ zfs_params(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		"zfs_free_leak_on_eio",
 		"zfs_free_min_time_ms",
 		"zfs_immediate_write_sz",
+		"zfs_import_defer_txgs",
 		"zfs_indirect_condense_obsolete_pct",
 		"zfs_lua_check_instrlimit_interval",
 		"zfs_lua_max_instrlimit",
 		"zfs_lua_max_memlimit",
+		"zfs_max_async_dedup_frees",
 		"zfs_max_recordsize",
 		"zfs_mdcomp_disable",
 		"zfs_metaslab_condense_block_threshold",
@@ -1131,14 +1134,11 @@ dbgmsg_cb(uintptr_t addr, const void *unknown __unused, void *arg)
 		int64_t		diff;
 		char		dbuf[32] = { 0 };
 
-		if (da->da_curtime == 0)
-			da->da_curtime = mdb_gethrtime();
-
 		diff = (int64_t)hrtime - da->da_curtime;
 		mdb_nicetime(diff, dbuf, sizeof (dbuf));
 		mdb_printf("%-20s ", dbuf);
 	} else if (da->da_hrtime) {
-		mdb_printf("%016x ", hrtime);
+		mdb_printf("%016llx ", hrtime);
 	} else if (da->da_time) {
 		mdb_printf("%Y ", timestamp);
 	}
@@ -1171,6 +1171,15 @@ dbgmsg(uintptr_t addr, uint_t flags __unused, int argc, const mdb_arg_t *argv)
 
 	if (verbose)
 		da.da_address = da.da_time = B_TRUE;
+
+	if (da.da_timedelta) {
+#ifdef _KERNEL
+		da.da_curtime = mdb_gethrtime();
+#else
+		mdb_warn("-t is only supported for kernel targets\n");
+		return (DCMD_ERR);
+#endif
+	}
 
 	if (mdb_lookup_by_obj(ZFS_OBJ_NAME, "zfs_dbgmsgs", &sym)) {
 		mdb_warn("can't find zfs_dbgmsgs");

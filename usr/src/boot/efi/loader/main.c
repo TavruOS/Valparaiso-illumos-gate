@@ -454,6 +454,7 @@ find_currdev(EFI_LOADED_IMAGE_PROTOCOL *img)
 	return (false);
 }
 
+#ifndef VALPARAISO_VERIFY_CONFIG
 static bool
 interactive_interrupt(const char *msg)
 {
@@ -481,6 +482,7 @@ interactive_interrupt(const char *msg)
 	} while (now - then < fail_timeout);
 	return (false);
 }
+#endif
 
 static void
 setenv_int(const char *key, int val)
@@ -676,6 +678,10 @@ uefi_serial_console(void)
 	return (NULL);
 }
 
+#ifdef VALPARAISO_VERIFY_CONFIG
+#include "verified-config.h"
+#endif
+
 EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
@@ -755,6 +761,11 @@ main(int argc, CHAR16 *argv[])
 	 * args from UCS-2 to ASCII (16 to 8 bit) as they are copied (though
 	 * this method is flawed for non-ASCII characters).
 	 */
+#ifdef VALPARAISO_VERIFY_CONFIG
+	/* Firmware load options are outside the signed boot manifest. */
+	if (argc > 1)
+		argc = 1;
+#endif
 	for (i = 1; i < argc; i++) {
 		if (argv[i][0] == '-') {
 			for (j = 1; argv[i][j] != 0; j++) {
@@ -931,11 +942,37 @@ main(int argc, CHAR16 *argv[])
 	 * the boot protocol and also allow an escape hatch for users wishing
 	 * to try something different.
 	 */
+#ifdef VALPARAISO_VERIFY_CONFIG
+	if (!verified_firmware_enforcing()) {
+		printf("Valparaiso requires UEFI Secure Boot enforcement\n");
+		return (EFI_SECURITY_VIOLATION);
+	}
+	if (!find_currdev(boot_img))
+		return (EFI_NOT_FOUND);
+
+	struct env_var *current = env_getenv("currdev");
+	if (current == NULL || current->ev_value == NULL)
+		return (EFI_NOT_FOUND);
+	current->ev_sethook = env_noset;
+	current->ev_unsethook = env_nounset;
+	if (env_setenv("rootdev", EV_VOLATILE | EV_NOHOOK, current->ev_value,
+	    env_noset, env_nounset) != 0)
+		return (EFI_SECURITY_VIOLATION);
+	struct env_var *root = env_getenv("rootdev");
+	root->ev_sethook = env_noset;
+	root->ev_unsethook = env_nounset;
+
+	if (!verified_config_init()) {
+		printf("Valparaiso startup file verification failed\n");
+		return (EFI_SECURITY_VIOLATION);
+	}
+#else
 	if (!find_currdev(boot_img))
 		if (!interactive_interrupt("Failed to find bootable partition"))
 			return (EFI_NOT_FOUND);
 
 	autoload_font(false);		/* Set up the font list for console. */
+#endif
 	efi_init_environment();
 	bi_isadir();			/* set ISADIR */
 	acpi_detect();
@@ -944,7 +981,19 @@ main(int argc, CHAR16 *argv[])
 		ptr = efi_get_table(&gEfiSmbiosTableGuid);
 	smbios_detect(ptr);
 
+#ifdef VALPARAISO_VERIFY_CONFIG
+	/*
+	 * The signed loader definitions handle configuration and module
+	 * setup. Omit the interactive loader shell in this single-root build.
+	 */
+	bf_init(NULL);
+	if (include("/boot/forth/loader.4th") != CMD_OK)
+		return (EFI_SECURITY_VIOLATION);
+	(void) autoboot(-2, NULL);
+	return (EFI_SECURITY_VIOLATION);
+#else
 	interact(NULL);			/* doesn't return */
+#endif
 
 	return (EFI_SUCCESS);		/* keep compiler happy */
 }
