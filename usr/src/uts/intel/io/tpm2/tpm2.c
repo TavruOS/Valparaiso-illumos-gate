@@ -35,9 +35,12 @@
  * TIS/FIFO and Pluton start methods are not supported yet.
  *
  * /dev/tpm0 behaves like the FreeBSD and Linux raw TPM device: write(2)
- * one complete command, then read(2) its response. The device is opened
- * exclusively; there is no in-kernel resource manager. All I/O polls, as
- * the FreeBSD driver does: CRB interrupts are disabled.
+ * one complete command, then read(2) its response, whole or in parts.
+ * write(2) returns once the response is ready, so poll(2) reports POLLIN
+ * while unread response bytes remain and POLLOUT at all times. The device
+ * is opened exclusively; there is no in-kernel resource manager. All I/O
+ * polls the hardware, as the FreeBSD driver does: CRB interrupts are
+ * disabled.
  */
 
 #include <sys/types.h>
@@ -48,6 +51,7 @@
 #include <sys/open.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
+#include <sys/poll.h>
 #include <sys/cred.h>
 #include <sys/kmem.h>
 #include <sys/conf.h>
@@ -145,6 +149,7 @@ typedef struct tpm2 {
 	tpm2_map_t	t_cmd;
 	tpm2_map_t	t_rsp;
 	boolean_t	t_rsp_shared;
+	struct pollhead	t_pollhead;
 	size_t		t_len;		/* Unread response bytes. */
 	size_t		t_off;
 	uint8_t		t_buf[TPM2_BUFSIZE];
@@ -660,7 +665,30 @@ tpm2_write(dev_t dev, struct uio *uiop, cred_t *credp)
 	if (error == 0)
 		error = tpm2_transmit(t, n);
 	mutex_exit(&t->t_lock);
+	if (error == 0)
+		pollwakeup(&t->t_pollhead, POLLIN | POLLRDNORM);
 	return (error);
+}
+
+static int
+tpm2_chpoll(dev_t dev, short events, int anyyet, short *reventsp,
+    struct pollhead **phpp)
+{
+	tpm2_t *t = ddi_get_soft_state(tpm2_statep, getminor(dev));
+	short revents;
+
+	if (t == NULL)
+		return (ENXIO);
+	revents = events & (POLLOUT | POLLWRNORM);
+	mutex_enter(&t->t_lock);
+	if (t->t_len > 0)
+		revents |= events & (POLLIN | POLLRDNORM);
+	mutex_exit(&t->t_lock);
+
+	*reventsp = revents;
+	if ((revents == 0 && !anyyet) || (events & POLLET) != 0)
+		*phpp = &t->t_pollhead;
+	return (0);
 }
 
 static int
@@ -739,6 +767,7 @@ tpm2_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	mutex_exit(&t->t_lock);
 
 	ddi_remove_minor_node(dip, NULL);
+	pollhead_clean(&t->t_pollhead);
 	tpm2_teardown(t);
 	mutex_destroy(&t->t_lock);
 	ddi_soft_state_free(tpm2_statep, instance);
@@ -778,7 +807,7 @@ static struct cb_ops tpm2_cb_ops = {
 	.cb_devmap =	nodev,
 	.cb_mmap =	nodev,
 	.cb_segmap =	nodev,
-	.cb_chpoll =	nochpoll,
+	.cb_chpoll =	tpm2_chpoll,
 	.cb_prop_op =	ddi_prop_op,
 	.cb_str =	NULL,
 	.cb_flag =	D_MP,
