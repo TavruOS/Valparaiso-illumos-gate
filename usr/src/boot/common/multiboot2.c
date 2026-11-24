@@ -1004,6 +1004,12 @@ multiboot2_exec(struct preloaded_file *fp)
 		goto error;
 	}
 
+	if (archsw.arch_boot_commit != NULL && !archsw.arch_boot_commit()) {
+		printf("verified boot state could not be recorded\n");
+		error = EAUTH;
+		goto error;
+	}
+
 	/*
 	 * Set the stage for physical memory layout:
 	 * - We have kernel at load_addr.
