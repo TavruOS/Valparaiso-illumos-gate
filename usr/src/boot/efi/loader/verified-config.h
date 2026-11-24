@@ -469,14 +469,20 @@ verified_firmware_enforcing(void)
 /*
  * Rollback protection. The highest manifest security version booted so far
  * is kept in a non-volatile variable without runtime access, so the running
- * system cannot lower it. Refuse older manifests and raise the minimum when
- * a newer one boots. Any unexpected variable state fails closed.
+ * system cannot lower it. Refuse older manifests at startup, but raise the
+ * minimum only once the kernel and boot archive have been loaded and
+ * verified, so a signed manifest whose files fail verification cannot lock
+ * out the previous boot environment. Any unexpected variable state fails
+ * closed.
  */
 static EFI_GUID verified_rollback_guid = { 0x6f1c3a52, 0x9b4e, 0x4d27,
 	{ 0xa8, 0xe1, 0x5c, 0x0d, 0x7f, 0x3b, 0x2e, 0x94 } };
 static CHAR16 verified_rollback_name[] = L"ValparaisoMinimumSecurityVersion";
 #define	VERIFIED_ROLLBACK_ATTR \
 	(EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS)
+
+static uint32_t verified_rollback_version;
+static bool verified_rollback_pending;
 
 static bool
 verified_rollback_check(const unsigned char *manifest, size_t length)
@@ -509,20 +515,35 @@ verified_rollback_check(const unsigned char *manifest, size_t length)
 		    version, minimum);
 		return (false);
 	}
-	if (status == EFI_SUCCESS && version == minimum)
-		return (true);
+	verified_rollback_version = version;
+	verified_rollback_pending = status != EFI_SUCCESS || version > minimum;
+	return (true);
+}
 
+/*
+ * Record the manifest's security version. The loader reaches this only after
+ * the verified kernel and rootfs modules are loaded and while boot services
+ * are still available.
+ */
+static bool
+verified_rollback_commit(void)
+{
+	UINT8 stored[sizeof (uint32_t)];
+	uint32_t version = verified_rollback_version;
+
+	if (!verified_rollback_pending)
+		return (true);
 	stored[0] = version & 0xff;
 	stored[1] = (version >> 8) & 0xff;
 	stored[2] = (version >> 16) & 0xff;
 	stored[3] = (version >> 24) & 0xff;
-	status = RS->SetVariable(verified_rollback_name,
+	if (EFI_ERROR(RS->SetVariable(verified_rollback_name,
 	    &verified_rollback_guid, VERIFIED_ROLLBACK_ATTR, sizeof (stored),
-	    stored);
-	if (EFI_ERROR(status)) {
+	    stored))) {
 		printf("Valparaiso: cannot record rollback state\n");
 		return (false);
 	}
+	verified_rollback_pending = false;
 	return (true);
 }
 
@@ -650,5 +671,6 @@ verified_config_init(void)
 	archsw.arch_kernel_allowed = verified_kernel_allowed;
 	archsw.arch_raw_module_allowed = verified_raw_module_allowed;
 	archsw.arch_kernel_args_allowed = verified_kernel_args_allowed;
+	archsw.arch_boot_commit = verified_rollback_commit;
 	return (true);
 }
