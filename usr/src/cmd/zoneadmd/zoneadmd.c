@@ -24,6 +24,8 @@
  * Copyright 2014 Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright 2026 Oxide Computer Company
+ * Copyright 2026 EFit Partners
+ * Copyright 2026 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -79,6 +81,8 @@
 #include <errno.h>
 #include <door.h>
 #include <fcntl.h>
+#include <libsysevent.h>
+#include <sys/sysevent/eventdefs.h>
 #include <locale.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -87,6 +91,7 @@
 #include <string.h>
 #include <strings.h>
 #include <synch.h>
+#include <time.h>
 #include <syslog.h>
 #include <thread.h>
 #include <unistd.h>
@@ -532,6 +537,39 @@ notify_zonestatd(zoneid_t zoneid)
 }
 
 /*
+ * Post an EC_ZONE/ESC_ZONE_STATE_CHANGE event for a runtime transition
+ * driven directly by zoneadmd (ready/running/shutting_down/down).  Best
+ * effort only, same rationale as libzonecfg's post_zone_config_event():
+ * a consumer is expected to periodically reconcile against actual state.
+ *
+ * old_state is whatever the caller was told the zone's state was before
+ * starting this operation; for chained operations (e.g. boot, which runs
+ * zone_ready() then zone_bootup()) it may lag the true immediately-prior
+ * state, matching the same approximation the pre/post statechg brand hooks
+ * already make with this value.
+ */
+static void
+post_zone_runtime_event(int old_state, const char *newstate)
+{
+	nvlist_t *nvl;
+	sysevent_id_t eid;
+
+	if (nvlist_alloc(&nvl, NV_UNIQUE_NAME, 0) != 0)
+		return;
+
+	if (nvlist_add_string(nvl, ZONE_CB_NAME, zone_name) == 0 &&
+	    nvlist_add_string(nvl, ZONE_CB_NEWSTATE, newstate) == 0 &&
+	    nvlist_add_string(nvl, ZONE_CB_OLDSTATE,
+	    zone_state_str(old_state)) == 0 &&
+	    nvlist_add_uint64(nvl, ZONE_CB_TIMESTAMP,
+	    (uint64_t)time(NULL)) == 0) {
+		(void) sysevent_post_event(EC_ZONE, ESC_ZONE_STATE_CHANGE,
+		    ILLUMOS_VENDOR, "zoneadmd", nvl, &eid);
+	}
+	nvlist_free(nvl);
+}
+
+/*
  * Bring a zone up to the pre-boot "ready" stage.  The mount_cmd argument is
  * 'true' if this is being invoked as part of the processing for the "mount"
  * subcommand.
@@ -567,6 +605,8 @@ zone_ready(zlog_t *zlogp, zone_mnt_t mount_cmd, int zstate)
 
 	if (brand_poststatechg(zlogp, zstate, Z_READY) != 0)
 		goto bad;
+
+	post_zone_runtime_event(zstate, ZONE_EVENT_READY);
 
 	return (0);
 
@@ -985,6 +1025,8 @@ zone_bootup(zlog_t *zlogp, const char *bootargs, int zstate)
 	if (brand_poststatechg(zlogp, zstate, Z_BOOT) != 0)
 		goto bad;
 
+	post_zone_runtime_event(zstate, ZONE_EVENT_RUNNING);
+
 	return (0);
 
 bad:
@@ -1019,6 +1061,8 @@ zone_halt(zlog_t *zlogp, boolean_t unmount_cmd, boolean_t rebooting, int zstate)
 	if (brand_poststatechg(zlogp, zstate, Z_HALT) != 0)
 		return (-1);
 
+	post_zone_runtime_event(zstate, ZONE_EVENT_DOWN);
+
 	return (0);
 }
 
@@ -1033,6 +1077,7 @@ zone_graceful_shutdown(zlog_t *zlogp)
 	ctid_t ct;
 	int tmpl_fd;
 	int child_status;
+	zone_state_t old_state;
 
 	if (shutdown_in_progress) {
 		zerror(zlogp, B_FALSE, "shutdown already in progress");
@@ -1104,6 +1149,10 @@ zone_graceful_shutdown(zlog_t *zlogp)
 	}
 
 	shutdown_in_progress = B_TRUE;
+
+	if (zone_get_state(zone_name, &old_state) != Z_OK)
+		old_state = ZONE_STATE_RUNNING;
+	post_zone_runtime_event(old_state, ZONE_EVENT_SHUTTING_DOWN);
 
 	return (0);
 }
@@ -1263,7 +1312,7 @@ server(void *cookie, char *args, size_t alen, door_desc_t *dp,
 		goto out;
 	}
 
-	kernelcall = ucred_getpid(uc) == 0;
+	kernelcall = ucred_iskernel(uc);
 
 	/*
 	 * This is safe because we only use a zlog_t throughout the
